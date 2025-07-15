@@ -1,5 +1,6 @@
 dash
 pandas
-plotly
+numpy
 requests
-openpyxl
+geopandas
+plotly
