@@ -7,6 +7,7 @@ import geopandas as gpd
 import plotly.express as px
 from concurrent.futures import ThreadPoolExecutor
 import time
+import json
 
 # Ajuste seu diretório base aqui:
 DIR_BASE = r"C:\Users\Pedro\OneDrive\Área de Trabalho\painel-ehf-norte"
@@ -15,19 +16,26 @@ DIR_BASE = r"C:\Users\Pedro\OneDrive\Área de Trabalho\painel-ehf-norte"
 ARQ_CODIGOS = f"{DIR_BASE}\\codigos_mun_norte.xlsx"
 ARQ_HISTORICO = f"{DIR_BASE}\\temperatura_30_dias_municipios_corrigido_completo.xlsx"
 ARQ_PERCENTIS = f"{DIR_BASE}\\ehf_percentis_norte_painel.xlsx"
-ARQ_SHAPEFILE = f"{DIR_BASE}\\Municipios_Regiao_Norte_2024.shp"
+# Substitui shapefile pelo GeoJSON simplificado
+ARQ_GEOJSON = f"{DIR_BASE}\\municipios_norte_simplificado.geojson"
 
 # Carregar dados locais
 df_codigos = pd.read_excel(ARQ_CODIGOS)
 df_hist = pd.read_excel(ARQ_HISTORICO)
 df_percentis = pd.read_excel(ARQ_PERCENTIS)
-gdf_shape = gpd.read_file(ARQ_SHAPEFILE)
+
+# Carregar GeoJSON (no lugar do shapefile)
+with open(ARQ_GEOJSON, 'r', encoding='utf-8') as f:
+    geojson_data = json.load(f)
 
 # Padronizar nomes dos municípios (maiúsculo)
 df_codigos['NM_MUN'] = df_codigos['NM_MUN'].str.upper()
 df_hist['NM_MUN'] = df_hist['NM_MUN'].str.upper()
 df_percentis['NM_MUN'] = df_percentis['NM_MUN'].str.upper()
-gdf_shape['NM_MUN'] = gdf_shape['NM_MUN'].str.upper()
+# GeoJSON tem o campo NM_MUN dentro das propriedades (não no GeoDataFrame)
+# Para merge, vamos montar um DataFrame com NM_MUN único do geojson:
+geojson_municipios = [feature['properties']['NM_MUN'].upper() for feature in geojson_data['features']]
+df_geojson = pd.DataFrame({'NM_MUN': geojson_municipios})
 
 # Calcular média móvel 30 dias histórica
 tmean_30d = df_hist.groupby('NM_MUN')['Tmedia'].mean().reset_index()
@@ -108,6 +116,9 @@ df_previsoes['Tmedia_3d'] = df_previsoes.groupby('NM_MUN')['Tmedia'].rolling(win
 df_previsoes = df_previsoes.merge(tmean_30d, on='NM_MUN', how='left')
 df_previsoes = df_previsoes.merge(df_percentis[['NM_MUN', 'Tmédia_p95', 'p95_EHF', 'p98_EHF', 'p99_EHF']], on='NM_MUN', how='left')
 
+# Filtrar df_previsoes para municípios que existem no GeoJSON (evita problemas de chave)
+df_previsoes = df_previsoes[df_previsoes['NM_MUN'].isin(df_geojson['NM_MUN'])]
+
 # Calcular os índices do EHF com condição de Tmedia_3d >= Tmédia_p95
 def calcula_ehf(row):
     if pd.isna(row['Tmedia_3d']) or pd.isna(row['Tmédia_p95']):
@@ -137,8 +148,7 @@ def classificar_ehf(row):
 
 df_previsoes['Classificacao'] = df_previsoes.apply(classificar_ehf, axis=1)
 
-# Juntar com shapefile
-gdf_final = gdf_shape.merge(df_previsoes, on='NM_MUN', how='left')
+# Agora não faz merge com GeoDataFrame, o geojson é usado diretamente no plotly
 
 # Montar app Dash
 app = dash.Dash(__name__)
@@ -161,12 +171,13 @@ app.layout = html.Div([
 )
 def update_map(selected_date):
     selected_date = pd.to_datetime(selected_date)
-    gdf_date = gdf_final[gdf_final['Data'] == selected_date]
+    df_date = df_previsoes[df_previsoes['Data'] == selected_date]
 
     fig = px.choropleth_mapbox(
-        gdf_date,
-        geojson=gdf_date.geometry.__geo_interface__,
-        locations=gdf_date.index,
+        df_date,
+        geojson=geojson_data,
+        locations='NM_MUN',
+        featureidkey='properties.NM_MUN',
         color='Classificacao',
         hover_name='NM_MUN',
         hover_data=['EHF', 'Tmedia_3d', 'Classificacao'],
@@ -194,18 +205,20 @@ def update_graph(clickData):
     if not clickData:
         return {}, "Clique em um município no mapa para ver a evolução."
 
-    idx = clickData['points'][0]['location']
-    mun = gdf_final.loc[idx, 'NM_MUN']
+    mun = clickData['points'][0]['location']
 
     df_mun = df_previsoes[df_previsoes['NM_MUN'] == mun].sort_values('Data')
 
-    fig = px.line(df_mun, x='Data', y=['EHF', 'Tmedia_3d'], labels={'value': 'Valor', 'Data': 'Data'}, title=f'Evolução EHF e Tmedia - {mun}')
+    fig = px.line(df_mun, x='Data', y=['EHF', 'Tmedia_3d'],
+                  labels={'value': 'Valor', 'Data': 'Data'},
+                  title=f'Evolução EHF e Tmedia - {mun}')
     info_text = f'Município: {mun}'
 
     return fig, info_text
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
 
 
