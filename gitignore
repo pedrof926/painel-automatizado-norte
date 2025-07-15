@@ -1,0 +1,8 @@
+# Arquivos temporários
+__pycache__/
+*.pyc
+.DS_Store
+
+# Dados gerados automaticamente
+historico_tmédia/
+ehf_previsao/
