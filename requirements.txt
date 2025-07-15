@@ -1,8 +1,11 @@
 dash
+gunicorn
 pandas
 numpy
 requests
 geopandas
 plotly
-openpyxl
-gunicorn
+concurrent.futures ; python_version < '3.9'  # só se necessário, geralmente vem no python 3.9+
+shapely
+fiona
+pyproj
