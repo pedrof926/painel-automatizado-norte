@@ -9,36 +9,36 @@ from concurrent.futures import ThreadPoolExecutor
 import time
 import os
 
-# Ajuste seu diretório base aqui:
+# Diretório base (para Render usar o atual)
 DIR_BASE = "."
 
-# Arquivos locais com dados históricos e percentis
+# Arquivos locais
 ARQ_CODIGOS = f"{DIR_BASE}/codigos_mun_norte.xlsx"
 ARQ_HISTORICO = f"{DIR_BASE}/temperatura_30_dias_municipios_corrigido_completo.xlsx"
 ARQ_PERCENTIS = f"{DIR_BASE}/ehf_percentis_norte_painel.xlsx"
 ARQ_GEOJSON = f"{DIR_BASE}/municipios_norte_simplificado.geojson"
 
-# Carregar dados locais
+# Ler dados
 df_codigos = pd.read_excel(ARQ_CODIGOS)
 df_hist = pd.read_excel(ARQ_HISTORICO)
 df_percentis = pd.read_excel(ARQ_PERCENTIS)
 gdf_shape = gpd.read_file(ARQ_GEOJSON)
 
-# Padronizar nomes dos municípios (maiúsculo)
+# Padronizar nome municípios (maiúsculo)
 df_codigos['NM_MUN'] = df_codigos['NM_MUN'].str.upper()
 df_hist['NM_MUN'] = df_hist['NM_MUN'].str.upper()
 df_percentis['NM_MUN'] = df_percentis['NM_MUN'].str.upper()
 gdf_shape['NM_MUN'] = gdf_shape['NM_MUN'].str.upper()
 
-# Calcular média móvel 30 dias histórica
+# Média móvel 30 dias histórica
 tmean_30d = df_hist.groupby('NM_MUN')['Tmedia'].mean().reset_index()
 tmean_30d.rename(columns={'Tmedia': 'Tmean_30d'}, inplace=True)
 
-# Função para consultar API INMET para um município (formato simples)
+# Consulta API INMET (com timeout aumentado)
 def consulta_previsao_inmet(codigo_municipio):
     url = f"https://apiprevmet3.inmet.gov.br/previsao/{codigo_municipio}"
     try:
-        resposta = requests.get(url, timeout=20)  # timeout aumentado
+        resposta = requests.get(url, timeout=20)
         resposta.raise_for_status()
         dados = resposta.json()
 
@@ -69,7 +69,7 @@ def consulta_previsao_inmet(codigo_municipio):
                 tmedia_diaria = np.nan
 
             resultados.append({
-                'NM_MUN': '',  # vamos preencher depois
+                'NM_MUN': '',  # preenchido depois
                 'Data': pd.to_datetime(data_str, dayfirst=True),
                 'Tmedia': tmedia_diaria
             })
@@ -82,36 +82,36 @@ def consulta_previsao_inmet(codigo_municipio):
         print(f"Erro INMET {codigo_municipio}: {e}")
         return pd.DataFrame(columns=['NM_MUN', 'Data', 'Tmedia'])
 
-# Buscar previsões para todos municípios sequencialmente com delay de 5s para evitar erro 429
+# Busca previsões sequencialmente para evitar 429
 def obter_previsoes_todos(df_codigos):
     resultados = []
     for codigo in df_codigos['CD_MUN']:
         df_tmp = consulta_previsao_inmet(codigo)
         if not df_tmp.empty:
             resultados.append(df_tmp)
-        print(f"Requisição feita para município {codigo}, esperando 5 segundos...")
-        time.sleep(5)  # delay de 5 segundos entre requisições
+        print(f"Requisição feita para município {codigo}, aguardando 5s...")
+        time.sleep(5)
     return pd.concat(resultados, ignore_index=True)
 
-# Obter as previsões ao iniciar o app (pode demorar muito)
+# Carregar previsões no início (demora!)
 print("Buscando previsões INMET para todos os municípios, aguarde...")
 df_previsoes = obter_previsoes_todos(df_codigos)
 print("Previsões carregadas.")
 
-# Média móvel 3 dias da previsão
+# Média móvel 3 dias
 df_previsoes = df_previsoes.sort_values(['NM_MUN', 'Data'])
 df_previsoes['Tmedia_3d'] = df_previsoes.groupby('NM_MUN')['Tmedia'].rolling(window=3, min_periods=1).mean().reset_index(level=0, drop=True)
 
-# Juntar com histórico e percentis para cálculo do EHF
+# Merge histórico e percentis
 df_previsoes = df_previsoes.merge(tmean_30d, on='NM_MUN', how='left')
 df_previsoes = df_previsoes.merge(df_percentis[['NM_MUN', 'Tmédia_p95', 'p95_EHF', 'p98_EHF', 'p99_EHF']], on='NM_MUN', how='left')
 
-# Calcular os índices do EHF com condição de Tmedia_3d >= Tmédia_p95
+# Cálculo EHF com condição
 def calcula_ehf(row):
     if pd.isna(row['Tmedia_3d']) or pd.isna(row['Tmédia_p95']):
         return np.nan
     if row['Tmedia_3d'] < row['Tmédia_p95']:
-        return 0.0  # sem risco, EHF = 0
+        return 0.0
     ehi_accl = row['Tmedia_3d'] - row['Tmean_30d']
     ehi_sig = row['Tmedia_3d'] - row['Tmédia_p95']
     ehf = ehi_accl * max(0, ehi_sig)
@@ -119,6 +119,7 @@ def calcula_ehf(row):
 
 df_previsoes['EHF'] = df_previsoes.apply(calcula_ehf, axis=1)
 
+# Classificação EHF
 def classificar_ehf(row):
     if pd.isna(row['EHF']):
         return 'Sem Dados'
@@ -135,10 +136,10 @@ def classificar_ehf(row):
 
 df_previsoes['Classificacao'] = df_previsoes.apply(classificar_ehf, axis=1)
 
-# Juntar com GeoJSON simplificado
+# Merge com GeoJSON
 gdf_final = gdf_shape.merge(df_previsoes, on='NM_MUN', how='left')
 
-# Montar app Dash
+# Criação app Dash
 app = dash.Dash(__name__)
 
 app.layout = html.Div([
@@ -203,8 +204,9 @@ def update_graph(clickData):
     return fig, info_text
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8050))  # Render ou local
+    port = int(os.environ.get('PORT', 8050))  # para Render ou local
     app.run_server(host='0.0.0.0', port=port, debug=True)
+
 
 
 
