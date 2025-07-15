@@ -3,6 +3,7 @@ gunicorn
 pandas
 numpy
 requests
+openpyxl
 geopandas
 plotly
 concurrent.futures ; python_version < '3.9'  # só se necessário, geralmente vem no python 3.9+
