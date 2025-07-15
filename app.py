@@ -206,8 +206,8 @@ def update_graph(clickData):
     return fig, info_text
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8050))
-    app.run(debug=True, host='0.0.0.0', port=port)
+    port = int(os.environ.get('PORT', 8050))  # Pega a porta do Render ou usa 8050 localmente
+    app.run_server(host='0.0.0.0', port=port, debug=True)
 
 
 
