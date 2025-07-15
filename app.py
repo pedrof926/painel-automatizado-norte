@@ -82,21 +82,18 @@ def consulta_previsao_inmet(codigo_municipio):
         print(f"Erro INMET {codigo_municipio}: {e}")
         return pd.DataFrame(columns=['NM_MUN', 'Data', 'Tmedia'])
 
-# Buscar previsões para todos municípios em paralelo com delay para evitar erro 429
+# Buscar previsões para todos municípios sequencialmente com delay de 5s para evitar erro 429
 def obter_previsoes_todos(df_codigos):
     resultados = []
-    with ThreadPoolExecutor(max_workers=5) as executor:  # menos threads
-        futures = []
-        for codigo in df_codigos['CD_MUN']:
-            futures.append(executor.submit(consulta_previsao_inmet, codigo))
-            time.sleep(0.5)  # Delay de 500ms entre requisições para evitar bloqueio
-        for future in futures:
-            df_tmp = future.result()
-            if not df_tmp.empty:
-                resultados.append(df_tmp)
+    for codigo in df_codigos['CD_MUN']:
+        df_tmp = consulta_previsao_inmet(codigo)
+        if not df_tmp.empty:
+            resultados.append(df_tmp)
+        print(f"Requisição feita para município {codigo}, esperando 5 segundos...")
+        time.sleep(5)  # delay de 5 segundos entre requisições
     return pd.concat(resultados, ignore_index=True)
 
-# Obter as previsões ao iniciar o app (pode demorar)
+# Obter as previsões ao iniciar o app (pode demorar muito)
 print("Buscando previsões INMET para todos os municípios, aguarde...")
 df_previsoes = obter_previsoes_todos(df_codigos)
 print("Previsões carregadas.")
@@ -206,8 +203,9 @@ def update_graph(clickData):
     return fig, info_text
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8050))  # Pega a porta do Render ou usa 8050 localmente
-    app.run_server(host='0.0.0.0', port=port, debug=True)
+    port = int(os.environ.get('PORT', 8050))  # Render ou local
+    app.run(host='0.0.0.0', port=port, debug=True)
+
 
 
 
