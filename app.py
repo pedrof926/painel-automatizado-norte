@@ -5,7 +5,6 @@ import numpy as np
 import requests
 import geopandas as gpd
 import plotly.express as px
-from concurrent.futures import ThreadPoolExecutor
 import time
 import os
 
@@ -34,11 +33,11 @@ gdf_shape['NM_MUN'] = gdf_shape['NM_MUN'].str.upper()
 tmean_30d = df_hist.groupby('NM_MUN')['Tmedia'].mean().reset_index()
 tmean_30d.rename(columns={'Tmedia': 'Tmean_30d'}, inplace=True)
 
-# Consulta API INMET (com timeout aumentado)
+# Consulta API INMET (timeout maior)
 def consulta_previsao_inmet(codigo_municipio):
     url = f"https://apiprevmet3.inmet.gov.br/previsao/{codigo_municipio}"
     try:
-        resposta = requests.get(url, timeout=20)
+        resposta = requests.get(url, timeout=30)
         resposta.raise_for_status()
         dados = resposta.json()
 
@@ -50,8 +49,7 @@ def consulta_previsao_inmet(codigo_municipio):
         resultados = []
 
         for data_str, periodos in municipio_data.items():
-            tmaxs = []
-            tmins = []
+            tmaxs, tmins = [], []
             for periodo in ['manha', 'tarde', 'noite']:
                 if periodo in periodos:
                     tmax = periodos[periodo].get('temp_max')
@@ -69,7 +67,7 @@ def consulta_previsao_inmet(codigo_municipio):
                 tmedia_diaria = np.nan
 
             resultados.append({
-                'NM_MUN': '',  # preenchido depois
+                'NM_MUN': '',  # preenche depois
                 'Data': pd.to_datetime(data_str, dayfirst=True),
                 'Tmedia': tmedia_diaria
             })
@@ -82,31 +80,30 @@ def consulta_previsao_inmet(codigo_municipio):
         print(f"Erro INMET {codigo_municipio}: {e}")
         return pd.DataFrame(columns=['NM_MUN', 'Data', 'Tmedia'])
 
-# Busca previsões sequencialmente para evitar 429
+# Buscar previsões sequencialmente, delay alto pra evitar erro 429
 def obter_previsoes_todos(df_codigos):
     resultados = []
     for codigo in df_codigos['CD_MUN']:
         df_tmp = consulta_previsao_inmet(codigo)
         if not df_tmp.empty:
             resultados.append(df_tmp)
-        print(f"Requisição feita para município {codigo}, aguardando 5s...")
-        time.sleep(5)
+        print(f"Requisição feita para município {codigo}, aguardando 10 segundos...")
+        time.sleep(10)  # delay de 10 segundos entre requisições
     return pd.concat(resultados, ignore_index=True)
 
-# Carregar previsões no início (demora!)
 print("Buscando previsões INMET para todos os municípios, aguarde...")
 df_previsoes = obter_previsoes_todos(df_codigos)
 print("Previsões carregadas.")
 
-# Média móvel 3 dias
+# Média móvel 3 dias da previsão
 df_previsoes = df_previsoes.sort_values(['NM_MUN', 'Data'])
 df_previsoes['Tmedia_3d'] = df_previsoes.groupby('NM_MUN')['Tmedia'].rolling(window=3, min_periods=1).mean().reset_index(level=0, drop=True)
 
-# Merge histórico e percentis
+# Juntar com histórico e percentis para cálculo do EHF
 df_previsoes = df_previsoes.merge(tmean_30d, on='NM_MUN', how='left')
 df_previsoes = df_previsoes.merge(df_percentis[['NM_MUN', 'Tmédia_p95', 'p95_EHF', 'p98_EHF', 'p99_EHF']], on='NM_MUN', how='left')
 
-# Cálculo EHF com condição
+# Calcular os índices do EHF
 def calcula_ehf(row):
     if pd.isna(row['Tmedia_3d']) or pd.isna(row['Tmédia_p95']):
         return np.nan
@@ -119,7 +116,7 @@ def calcula_ehf(row):
 
 df_previsoes['EHF'] = df_previsoes.apply(calcula_ehf, axis=1)
 
-# Classificação EHF
+# Classificar EHF
 def classificar_ehf(row):
     if pd.isna(row['EHF']):
         return 'Sem Dados'
@@ -136,10 +133,10 @@ def classificar_ehf(row):
 
 df_previsoes['Classificacao'] = df_previsoes.apply(classificar_ehf, axis=1)
 
-# Merge com GeoJSON
+# Merge com GeoJSON simplificado
 gdf_final = gdf_shape.merge(df_previsoes, on='NM_MUN', how='left')
 
-# Criação app Dash
+# Criar app Dash
 app = dash.Dash(__name__)
 
 app.layout = html.Div([
@@ -204,8 +201,9 @@ def update_graph(clickData):
     return fig, info_text
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8050))
+    port = int(os.environ.get('PORT', 8050))  # render define o PORT, senão usa 8050 local
     app.run_server(host='0.0.0.0', port=port, debug=True)
+
 
 
 
