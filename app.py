@@ -8,16 +8,14 @@ import plotly.express as px
 from concurrent.futures import ThreadPoolExecutor
 import time
 import json
+import os
 
-# Ajuste seu diretório base aqui:
-DIR_BASE = r"C:\Users\Pedro\OneDrive\Área de Trabalho\painel-ehf-norte"
+DIR_BASE = "."
 
-# Arquivos locais com dados históricos e percentis
-ARQ_CODIGOS = f"{DIR_BASE}\\codigos_mun_norte.xlsx"
-ARQ_HISTORICO = f"{DIR_BASE}\\temperatura_30_dias_municipios_corrigido_completo.xlsx"
-ARQ_PERCENTIS = f"{DIR_BASE}\\ehf_percentis_norte_painel.xlsx"
-# Substitui shapefile pelo GeoJSON simplificado
-ARQ_GEOJSON = f"{DIR_BASE}\\municipios_norte_simplificado.geojson"
+ARQ_CODIGOS = "./codigos_mun_norte.xlsx"
+ARQ_HISTORICO = "./temperatura_30_dias_municipios_corrigido_completo.xlsx"
+ARQ_PERCENTIS = "./ehf_percentis_norte_painel.xlsx"
+ARQ_GEOJSON = "./municipios_norte_simplificado.geojson"
 
 # Carregar dados locais
 df_codigos = pd.read_excel(ARQ_CODIGOS)
