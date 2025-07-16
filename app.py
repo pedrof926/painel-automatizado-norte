@@ -200,8 +200,13 @@ def update_graph(clickData):
 
     return fig, info_text
 
+app = dash.Dash(__name__)
+server = app.server  # ESSENCIAL para Render/Gunicorn
+
+# Seu layout e callbacks aqui
+
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8050))  # render define o PORT, senão usa 8050 local
+    port = int(os.environ.get('PORT', 8050))
     app.run_server(host='0.0.0.0', port=port, debug=True)
 
 
