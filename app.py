@@ -1,5 +1,4 @@
-import dash
-from dash import dcc, html, Input, Output
+from dash import Dash, dcc, html, Input, Output
 import pandas as pd
 import numpy as np
 import requests
@@ -137,7 +136,8 @@ df_previsoes['Classificacao'] = df_previsoes.apply(classificar_ehf, axis=1)
 gdf_final = gdf_shape.merge(df_previsoes, on='NM_MUN', how='left')
 
 # Criar app Dash
-app = dash.Dash(__name__)
+app = Dash(__name__)
+server = app.server  # ESSENCIAL para Render/Gunicorn
 
 app.layout = html.Div([
     html.H1("Painel EHF Região Norte - Previsão INMET"),
@@ -200,14 +200,10 @@ def update_graph(clickData):
 
     return fig, info_text
 
-app = dash.Dash(__name__)
-server = app.server  # ESSENCIAL para Render/Gunicorn
-
-# Seu layout e callbacks aqui
-
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8050))
     app.run_server(host='0.0.0.0', port=port, debug=True)
+
 
 
 
